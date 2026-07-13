@@ -1,86 +1,118 @@
 import os
-import json
-import urllib.request
-from fastapi import FastAPI, HTTPException, Request
-import uvicorn
+import httpx
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import JSONResponse, StreamingResponse
+from collections import defaultdict, deque
 
-app = FastAPI(title="BraveUp Live Toll Booth Proxy")
+app = FastAPI(title="TokenShield Gateway")
 
-# Safety Configuration Constants
-MAX_ALLOWED_CHARACTERS = 1000  
+# Retrieve API keys from environment variables for security
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-@app.get("/")
-def read_root():
-    return {"status": "active", "gateway": "BraveUp Live Proxy Core Engine"}
+# Configuration for the circuit breaker
+LOOP_THRESHOLD = 3  # Triggers breaker on the 3rd consecutive duplicate prompt
+WINDOW_SIZE = 5     # Tracks the last 5 request payloads per session
+
+# Memory state: In-memory store tracking message history per user session/IP
+# Structure: { session_id: deque([str, str, ...], maxlen=WINDOW_SIZE) }
+session_history = defaultdict(lambda: deque(maxlen=WINDOW_SIZE))
+
+def get_session_id(request: Request) -> str:
+    """Extracts a unique identifier for the calling client."""
+    # Fallback to authorization header or client IP to distinguish users
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header:
+        return auth_header
+    return request.client.host if request.client else "global"
 
 @app.post("/v1/chat/completions")
-async def process_ai_traffic(request: Request):
-    # Ensure the API key is active in the environment
-    gemini_key = os.environ.get("GEMINI_API_KEY")
-    if not gemini_key:
-        raise HTTPException(status_code=500, detail="Proxy Configuration Error: GEMINI_API_KEY missing.")
-
-    # 1. Intercept the network traffic payload
+async def token_shield_proxy(request: Request):
     try:
-        payload = await request.json()
+        body = await request.json()
     except Exception:
-        raise HTTPException(status_code=400, detail="Invalid JSON payload sent to proxy.")
-    
-    messages = payload.get("messages", [])
+        raise HTTPException(status_code=400, detail="Invalid JSON payload received.")
+
+    # 1. UNIVERSAL LOOP DETECTION LOGIC (Generic Inbound Gate)
+    messages = body.get("messages", [])
     if not messages:
-        raise HTTPException(status_code=400, detail="No messages payload detected.")
+        raise HTTPException(status_code=400, detail="Missing 'messages' array in payload.")
     
-    latest_user_message = messages[-1].get("content", "")
-    character_count = len(latest_user_message)
+    # Extract the string content of the latest user prompt
+    latest_msg = messages[-1].get("content", "") if messages else ""
+    session_id = get_session_id(request)
     
-    print(f"\n🚗 [Toll Booth Entry] Inspecting vehicle message...")
-    print(f"   Payload Character Count: {character_count}")
+    # Fetch previous history and analyze for loop patterns
+    history = session_history[session_id]
+    if history and history[-1] == latest_msg:
+        # Check consecutive identical entries
+        consecutive_repeats = 1
+        for msg in reversed(list(history)[:-1]):
+            if msg == latest_msg:
+                consecutive_repeats += 1
+            else:
+                break
+        
+        # If consecutive duplicate prompts hit the threshold, trip the circuit breaker
+        if consecutive_repeats + 1 >= LOOP_THRESHOLD:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "error": {
+                        "message": "TokenShield: Infinite agent loop cascade detected at the network layer. Connection severed.",
+                        "type": "loop_cascade_exception",
+                        "code": 429
+                    }
+                }
+            )
+            
+    # Append the current verified prompt to the sliding session window
+    history.append(latest_msg)
+
+    # 2. PROVIDER DETECTION & DYNAMIC DOWNSTREAM ROUTING (Custom Output Gate)
+    target_model = body.get("model", "").lower()
     
-    # 2. THE CIRCUIT BREAKER LOGIC
-    if character_count > MAX_ALLOWED_CHARACTERS:
-        print(f"🛑 [CIRCUIT BREAKER TRIGGERED] Request blocked! Potential token bleed detected.")
+    if "gemini" in target_model:
+        if not GEMINI_API_KEY:
+            raise HTTPException(status_code=500, detail="Gemini API Key missing on server environment.")
+        # Target Google's native OpenAI-compatible URL structure
+        target_url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {GEMINI_API_KEY}",
+            "Content-Type": "application/json"
+        }
+    elif "gpt" in target_model or "openai" in target_model:
+        if not OPENAI_API_KEY:
+            raise HTTPException(status_code=500, detail="OpenAI API Key missing on server environment.")
+        target_url = "https://api.openai.com/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json"
+        }
+    else:
+        # Fallback default if provider isn't explicit
         raise HTTPException(
-            status_code=429, 
-            detail="BraveUp Proxy Safety Block: Request exceeded maximum safe token/character volume."
+            status_code=400, 
+            detail=f"Unsupported model target '{body.get('model')}'. TokenShield currently manages Gemini and OpenAI routing flags."
         )
-    
-    # 3. Safe Passage - Forwarding to Real Gemini API (OpenAI Compatibility Endpoint)
-    print(f"✅ [Toll Booth Exit] Payload verified as safe. Forwarding to Live Gemini Servers...")
-    
-    # Target Google's OpenAI-compatible network bridge URL
-    url = f"https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-    
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {gemini_key}"
-    }
-    
-    # Re-package the payload to tell Gemini which model to use
-    forward_payload = {
-        "model": "gemini-3.5-flash",
-        "messages": messages
-    }
-    
-    req = urllib.request.Request(
-        url, 
-        data=json.dumps(forward_payload).encode("utf-8"), 
-        headers=headers, 
-        method="POST"
-    )
-    
-    try:
-        with urllib.request.urlopen(req) as response:
-            res_data = response.read().decode("utf-8")
-            live_response = json.loads(res_data)
-            print("⚡ [Live Response Received] Successfully routed response back to user application.")
-            return live_response
-    except urllib.error.HTTPError as e:
-        error_msg = e.read().decode("utf-8")
-        print(f"❌ Downstream AI Error: {error_msg}")
-        raise HTTPException(status_code=e.code, detail=f"Downstream AI Error: {error_msg}")
-    except Exception as e:
-        print(f"❌ Network Transport Error: {e}")
-        raise HTTPException(status_code=500, detail=f"Proxy Network Error: {e}")
+
+    # 3. NETWORK PAYLOAD DISPATCH
+    is_streaming = body.get("stream", False)
+    client = httpx.AsyncClient(timeout=60.0)
+
+    if is_streaming:
+        # Handle server-sent event (SSE) token chunks seamlessly
+        async def stream_generator():
+            async with client.stream("POST", target_url, json=body, headers=headers) as response:
+                async for chunk in response.aiter_bytes():
+                    yield chunk
+        return StreamingResponse(stream_generator(), media_type="text/event-stream")
+    else:
+        # Handle standard unified block responses
+        async with client as c:
+            response = await c.post(target_url, json=body, headers=headers)
+            return JSONResponse(status_code=response.status_code, content=response.json())
 
 if __name__ == "__main__":
+    import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=8000)
