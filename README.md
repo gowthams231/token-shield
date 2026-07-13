@@ -13,7 +13,10 @@ TokenShield operates entirely at the networking layer using an OpenAI-compatible
 
 ## Architecture Visualized
 
+<<<<<<< HEAD
 [START CODE]text
+=======
+>>>>>>> 9d377156ed699804daea6a04604fd48cdd7c4685
 [ Application Layer ] (LangGraph, CrewAI, AutoGen, Custom App)
          │
          ▼  (Generic OpenAI JSON Format)
@@ -28,36 +31,54 @@ TokenShield operates entirely at the networking layer using an OpenAI-compatible
                     │                │
                     ▼                ▼
          [ Google Gemini API ]    [ OpenAI API ]
+<<<<<<< HEAD
 [END CODE]
+=======
+>>>>>>> 9d377156ed699804daea6a04604fd48cdd7c4685
 
 ## Quick Start
 
 ### 1. Installation
 Install the required network gateway and server hosting dependencies:
 
+<<<<<<< HEAD
 [START CODE]bash
 pip install fastapi uvicorn httpx
 [END CODE]
+=======
+pip install fastapi uvicorn httpx
+>>>>>>> 9d377156ed699804daea6a04604fd48cdd7c4685
 
 ### 2. Run the Zero-Cost Offline Sandbox
 To validate payload structures and test the circuit-breaking engine locally without providing any API credentials or using internet access:
 
+<<<<<<< HEAD
 [START CODE]bash
 python sandbox_proxy.py
 [END CODE]
+=======
+python sandbox_proxy.py
+>>>>>>> 9d377156ed699804daea6a04604fd48cdd7c4685
 
 ### 3. Test the Circuit Breaker via PowerShell
 With the sandbox running, open a new terminal window and execute this command 3 times back-to-back to simulate a looping framework agent:
 
+<<<<<<< HEAD
 [START CODE]powershell
 Invoke-RestMethod -Uri "[http://127.0.0.1:8000/v1/chat/completions](http://127.0.0.1:8000/v1/chat/completions)" -Method Post -ContentType "application/json" -Body '{"model": "gemini-2.5-flash", "messages": [{"role": "user", "content": "Execute agent step 4."}]}'
 [END CODE]
 
 *Note: The third execution will trigger the TokenShield local tracking logic, trip the circuit breaker, and return a clean `429` error payload.*
+=======
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/v1/chat/completions" -Method Post -ContentType "application/json" -Body '{"model": "gemini-2.5-flash", "messages": [{"role": "user", "content": "Execute agent step 4."}]}'
+
+Note: The third execution will trigger the TokenShield local tracking logic, trip the circuit breaker, and return a clean 429 error payload.
+>>>>>>> 9d377156ed699804daea6a04604fd48cdd7c4685
 
 ### 4. Running Production Mode
 To deploy the live gateway proxy, configure your environment variables with your active keys:
 
+<<<<<<< HEAD
 [START CODE]powershell
 $env:GEMINI_API_KEY="your_gemini_key_here"
 $env:OPENAI_API_KEY="your_openai_key_here"
@@ -70,3 +91,13 @@ python proxy.py
 [END CODE]
 
 Point your framework applications directly to `[http://127.0.0.1:8000](http://127.0.0.1:8000)` to secure your live infrastructure pipelines.
+=======
+$env:GEMINI_API_KEY="your_gemini_key_here"
+$env:OPENAI_API_KEY="your_openai_key_here"
+
+Then execute the core engine:
+
+python proxy.py
+
+Point your framework applications directly to http://127.0.0.1:8000 to secure your live infrastructure pipelines.
+>>>>>>> 9d377156ed699804daea6a04604fd48cdd7c4685
