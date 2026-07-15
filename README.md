@@ -75,7 +75,9 @@ To view TokenShield operating under zero-leakage conditions, run app.py and test
 
 When Scenario B trips, your proxy.py terminal tab will instantly drop a structured business metrics report proving your exact financial mitigation figures:
 
-🛡️ \[TokenShield Threat Intercept Report\]Status: VELOCITY ANOMALY DETECTED (Looping Behavior)Model Target: gemini-3.1-flash-liteRequests in Last 60s: 4 / 4Dynamic Live Unit Cost/Token: $0.0000002500
+🛡️ \[TokenShield Threat Intercept Report\]
+    Status: VELOCITY ANOMALY DETECTED (Looping Behavior)\
+    Model Target: gemini-3.1-flash-liteRequests in Last 60s: 4 / 4Dynamic Live Unit Cost/Token: $0.0000002500
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 Immediate Waste Stopped: $0.000350🚨 RUNAWAY BURN RATE PROJECTION IF LEFT UNCHECKED:• Burn Rate / Min: $0.1049• Lost in 10 Minutes: $1.05• Lost in 1 Hour: $6.30
