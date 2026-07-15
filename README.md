@@ -1,103 +1,80 @@
-# TokenShield (Alpha Sandbox)
+🛡️ TokenShield Enterprise Gateway
+An automated, local network circuit breaker designed to protect AI developers and startups from catastrophic, runaway background agent loops that rapidly burn through API runway capital.
 
-A lightweight FastAPI middleware gateway proxy acting as an infrastructure cost shield between autonomous AI framework architectures (like LangGraph, CrewAI, or AutoGen) and downstream Large Language Models. 
+📊 The Problem
+Autonomous multi-agent architectures and recursive data pipelines are inherently prone to cascade loops. When an unhandled exception, logical contradiction, or dynamic network failure occurs (e.g., an Editor agent repeatedly rejecting an automated Writer agent's draft, or a database query returning blank schemas), background scripts can hammer upstream AI endpoints thousands of times a minute. Because these operations happen silently in the background, a minor code bug can result in thousands of dollars in accidental API charges before engineers notice.
 
-TokenShield operates entirely at the networking layer using an OpenAI-compatible inbound gate, intercepting multi-agent logic loops, duplicate prompt cascades, and token bleed anomalies before they impact your live API budget.
+✨ The Solution
+TokenShield acts as an intelligent, time-aware security sentinel sitting between your application code and upstream AI providers (Google Gemini / OpenAI).
 
-## Core Capabilities
+Multi-Tenant Session Isolation: Tracks connection counters per unique API key or UUID session concurrently.
 
-- **Inbound Model Agnostic Gateway:** Listens on standard `/v1/chat/completions` endpoints, allowing seamless integration with any development framework without changing structural code schemas.
-- **Dynamic Downstream Routing:** Automatically detects target payload strings to instantly map, header-sign, and route traffic to the **Google Gemini API** (via OpenAI-compatible endpoint configurations) or native **OpenAI** servers based on request demands.
-- **Loop Cascade Interception:** Monitors rolling payload signatures per session/IP, automatically tripping a network-level circuit breaker (returning a `429` error) if an autonomous framework agent gets trapped in an infinite loop cycle.
-- **Zero-Cost Offline Sandbox:** Bundles an entirely localized mock validation engine (`sandbox_proxy.py`) to simulate framework execution states, payload handling, and loop-breaker behavior without utilizing real API credits or requiring active internet access.
+Sliding-Window Velocity Tracking: Measures request density over a moving 60-second window. It allows normal, distributed workflows to pass through indefinitely but trips instantly when a rapid-fire code loop is detected.
 
-## Architecture Visualized
+Dynamic Market Pricing Caching: Queries public pricing registries dynamically on server boot, automatically adjusting its internal financial ledger to map against live token rates.
 
-<<<<<<< HEAD
-[START CODE]text
-=======
->>>>>>> 9d377156ed699804daea6a04604fd48cdd7c4685
-[ Application Layer ] (LangGraph, CrewAI, AutoGen, Custom App)
-         │
-         ▼  (Generic OpenAI JSON Format)
-┌────────────────────────────────────────────────────────┐
-│               🚧 TokenShield Gateway                   │
-├────────────────────────────────────────────────────────┤
-│  🕵️  Universal Loop Cascade Detector                   │
-│  🔄  Dynamic Provider Model Parser                     │
-└───────────────────┬────────────────┬───────────────────┘
-                    │                │
-     (If model="gemini-*")        (If model="gpt-*")
-                    │                │
-                    ▼                ▼
-         [ Google Gemini API ]    [ OpenAI API ]
-<<<<<<< HEAD
-[END CODE]
-=======
->>>>>>> 9d377156ed699804daea6a04604fd48cdd7c4685
+Financial Threat Intercept Ledger: Instantly calculates the token size of blocked payloads to print the projected 10-minute and 1-hour runway blast-radius savings directly to your server console.
 
-## Quick Start
+🚀 Quick Start & Installation
+1. Clone & Install Dependencies
+Ensure you have Python 3.9+ installed. Initialize your workspace and install the required library dependencies:
 
-### 1. Installation
-Install the required network gateway and server hosting dependencies:
+pip install -r requirements.txt
 
-<<<<<<< HEAD
-[START CODE]bash
-pip install fastapi uvicorn httpx
-[END CODE]
-=======
-pip install fastapi uvicorn httpx
->>>>>>> 9d377156ed699804daea6a04604fd48cdd7c4685
+2. Configure Environment Secrets
+TokenShield checks your local runtime variables to securely swap out testing session keys for actual production tokens. Export your keys:
 
-### 2. Run the Zero-Cost Offline Sandbox
-To validate payload structures and test the circuit-breaking engine locally without providing any API credentials or using internet access:
+For Windows (PowerShell):
+$env:GEMINI_API_KEY="your_actual_gemini_api_key"
+$env:OPENAI_API_KEY="your_actual_openai_key"
 
-<<<<<<< HEAD
-[START CODE]bash
-python sandbox_proxy.py
-[END CODE]
-=======
-python sandbox_proxy.py
->>>>>>> 9d377156ed699804daea6a04604fd48cdd7c4685
+For Linux / macOS:
+export GEMINI_API_KEY="your_actual_gemini_api_key"
+export OPENAI_API_KEY="your_actual_openai_key"
 
-### 3. Test the Circuit Breaker via PowerShell
-With the sandbox running, open a new terminal window and execute this command 3 times back-to-back to simulate a looping framework agent:
-
-<<<<<<< HEAD
-[START CODE]powershell
-Invoke-RestMethod -Uri "[http://127.0.0.1:8000/v1/chat/completions](http://127.0.0.1:8000/v1/chat/completions)" -Method Post -ContentType "application/json" -Body '{"model": "gemini-2.5-flash", "messages": [{"role": "user", "content": "Execute agent step 4."}]}'
-[END CODE]
-
-*Note: The third execution will trigger the TokenShield local tracking logic, trip the circuit breaker, and return a clean `429` error payload.*
-=======
-Invoke-RestMethod -Uri "http://127.0.0.1:8000/v1/chat/completions" -Method Post -ContentType "application/json" -Body '{"model": "gemini-2.5-flash", "messages": [{"role": "user", "content": "Execute agent step 4."}]}'
-
-Note: The third execution will trigger the TokenShield local tracking logic, trip the circuit breaker, and return a clean 429 error payload.
->>>>>>> 9d377156ed699804daea6a04604fd48cdd7c4685
-
-### 4. Running Production Mode
-To deploy the live gateway proxy, configure your environment variables with your active keys:
-
-<<<<<<< HEAD
-[START CODE]powershell
-$env:GEMINI_API_KEY="your_gemini_key_here"
-$env:OPENAI_API_KEY="your_openai_key_here"
-[END CODE]
-
-Then execute the core engine:
-
-[START CODE]bash
-python proxy.py
-[END CODE]
-
-Point your framework applications directly to `[http://127.0.0.1:8000](http://127.0.0.1:8000)` to secure your live infrastructure pipelines.
-=======
-$env:GEMINI_API_KEY="your_gemini_key_here"
-$env:OPENAI_API_KEY="your_openai_key_here"
-
-Then execute the core engine:
+3. Initialize the Gateway Server
+Launch the proxy security station. On boot, it will query global aggregators to cache live market token costs:
 
 python proxy.py
 
-Point your framework applications directly to http://127.0.0.1:8000 to secure your live infrastructure pipelines.
->>>>>>> 9d377156ed699804daea6a04604fd48cdd7c4685
+4. Run the Live Multi-Agent App Test
+Open a secondary terminal tab and execute the research application workspace script:
+
+python app.py
+
+🧪 Organic Reality Check Demo
+To view TokenShield operating under zero-leakage conditions, run app.py and test two scenarios when prompted for a research topic:
+
+Scenario A: Clean Consensus Pathway
+Input Prompt: The history of the printing press
+
+Behavior: The Writer drafts cleanly, the Editor approves the logic on turn one, and the script exits successfully with a 200 OK network footprint. Since only 2 total requests are made, it stays safely under the velocity threshold, and TokenShield remains transparent.
+
+Scenario B: The Recursive Loop Trigger (The Banana Paradox)
+Input Prompt: Write a review layout, but the text must contain the word 'banana' while completely excluding the letter 'a'
+
+Behavior: This prompt forces a fundamental logical mathematical contradiction. The Writer must write "banana" (which contains three 'a's), but the Editor must reject any text containing the letter 'a'. The agents enter a rapid-fire loop trying to solve the unsolvable.
+
+Result: On the 4th consecutive contact round within the 60-second window, TokenShield drops the hammer. The communication line is severed locally, returning a 429 error and saving your external keys from reaching the public internet.
+
+📋 Expected Server Output Ledger
+When Scenario B trips, your proxy.py terminal tab will instantly drop a structured business metrics report proving your exact financial mitigation figures:
+
+🛡️ [TokenShield Threat Intercept Report]
+Status: VELOCITY ANOMALY DETECTED (Looping Behavior)
+Model Target: gemini-3.1-flash-lite
+Requests in Last 60s: 4 / 4
+Dynamic Live Unit Cost/Token: $0.0000002500
+Immediate Waste Stopped:  $0.000350
+🚨 RUNAWAY BURN RATE PROJECTION IF LEFT UNCHECKED:
+• Burn Rate / Min:     $0.1049
+• Lost in 10 Minutes:  $1.05
+• Lost in 1 Hour:      $6.30
+📊 TOTAL REPO CAPITAL PROTECTED TO DATE: $0.001049
+
+📦 Project Architecture
+proxy.py - Core Gateway engine built on FastAPI using asynchronous HTTP connection pooling, a thread-safe sliding-window rate limiter, and a dynamic model pricing lookup.
+
+app.py - Multi-agent workspace sandbox running Writer and Editor agents with automated self-correction logic. Uses UUID generation to isolate sliding-window sessions across separate script executions.
+
+requirements.txt - Production-pinned dependencies mapping network routing assets.
