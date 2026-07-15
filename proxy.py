@@ -1,4 +1,5 @@
 import os
+import time
 import httpx
 import asyncio
 from contextlib import asynccontextmanager
@@ -7,7 +8,6 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from collections import defaultdict
 
 # 1. LIVE MARKET PRICE CACHE STORAGE
-# Dictionary structures to track model pricing and aggregate savings metrics
 LIVE_MODEL_PRICING = {}
 total_dollars_saved = 0.0
 
@@ -16,21 +16,17 @@ http_client: httpx.AsyncClient = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global http_client, LIVE_MODEL_PRICING
-    # Initialize connection pooling for processing high-velocity traffic safely
     http_client = httpx.AsyncClient(
         timeout=60.0,
         limits=httpx.Limits(max_connections=200, max_keepalive_connections=50)
     )
     
-    # DYNAMIC API FETCH: Pull live global AI token costs right at boot up
     try:
         print("🔄 Fetching live global AI market pricing metrics...")
         response = await http_client.get("https://openrouter.ai/api/v1/models")
         if response.status_code == 200:
             data = response.json().get("data", [])
             for model in data:
-                # OpenRouter returns pricing in total dollars per raw token (e.g. 0.00000025)
-                # We strip the vendor prefix (e.g., 'google/gemini-3.5-flash' -> 'gemini-3.5-flash')
                 model_id = model.get("id", "").split("/")[-1].lower()
                 prompt_cost = float(model.get("pricing", {}).get("prompt", 0.0))
                 
@@ -47,13 +43,13 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="TokenShield Enterprise Gateway", lifespan=lifespan)
 
-# Fallback internal host keys pulled safely from environment context variables
 HOST_GEMINI_KEY = os.getenv("GEMINI_API_KEY")
 HOST_OPENAI_KEY = os.getenv("OPENAI_API_KEY")
 
-# --- CONCURRENCY SAFE COUNTER ENGINE ---
-MAX_CONSECUTIVE_REQUESTS = 4
-session_counters = defaultdict(int)
+# --- ⚡ SLIDING-WINDOW VELOCITY TRACKER CONFIGURATION ---
+session_timestamps = defaultdict(list)
+MAX_REQUESTS_PER_WINDOW = 4
+WINDOW_SIZE_SECONDS = 60  # 1-minute sliding window
 state_lock = asyncio.Lock()
 
 def get_session_id(request: Request) -> str:
@@ -64,7 +60,7 @@ def get_session_id(request: Request) -> str:
 
 @app.post("/v1/chat/completions")
 async def token_shield_proxy(request: Request):
-    global total_dollars_saved, session_counters
+    global total_dollars_saved, session_timestamps
     try:
         body = await request.json()
     except Exception:
@@ -74,37 +70,42 @@ async def token_shield_proxy(request: Request):
         raise HTTPException(status_code=400, detail="Missing 'messages' array in payload.")
     
     session_id = get_session_id(request)
+    current_time = time.time()
     
-    # 2. ATOMIC GATEWAY CIRCUIT BREAKER & DYNAMIC SAVINGS PROJECTION
+    # 2. ATOMIC VELOCITY CIRCUIT BREAKER
     async with state_lock:
-        session_counters[session_id] += 1
-        current_count = session_counters[session_id]
+        # Clear out historical timestamps older than our 60-second window limit
+        session_timestamps[session_id] = [
+            t for t in session_timestamps[session_id] 
+            if current_time - t < WINDOW_SIZE_SECONDS
+        ]
+        
+        # Log the current request timestamp
+        session_timestamps[session_id].append(current_time)
+        current_velocity = len(session_timestamps[session_id])
 
-        if current_count >= MAX_CONSECUTIVE_REQUESTS:
+        # If request rate exceeds our velocity limit within the last minute, trip the breaker
+        if current_velocity >= MAX_REQUESTS_PER_WINDOW:
             model_name = body.get("model", "gemini-3.1-flash-lite").lower()
             
-            # Count the characters to calculate estimated token metrics (1 token ≈ 4 characters)
             messages = body.get("messages", [])
             raw_text = "".join([msg.get("content", "") for msg in messages])
             estimated_tokens = len(raw_text) / 4
             
-            # DYNAMIC LOOKUP: Fetch live tracked token cost from our cached system state memory
-            # Baseline absolute safety fallback if model isn't indexed ($0.25 per 1M tokens)
             cost_per_token = LIVE_MODEL_PRICING.get(model_name, 0.25 / 1_000_000)
-            
             single_request_cost = estimated_tokens * cost_per_token
             
-            # Calculate the Runaway Burn Rate Projections (assumes ~300 loop requests per minute)
+            # Assumes an unthrottled loop would execute at roughly 300 requests/minute
             burn_rate_per_minute = single_request_cost * 300
             projected_10_min_loss = burn_rate_per_minute * 10
             projected_1_hour_loss = burn_rate_per_minute * 60
             
             total_dollars_saved += single_request_cost
             
-            # Output the dynamic, data-driven balance sheet ledger right to the console
             print(f"\n🛡️ [TokenShield Threat Intercept Report]")
-            print(f"   Status: ACTIVE LOOP INTERCEPTED")
+            print(f"   Status: VELOCITY ANOMALY DETECTED (Looping Behavior)")
             print(f"   Model Target: {model_name}")
+            print(f"   Requests in Last 60s: {current_velocity} / {MAX_REQUESTS_PER_WINDOW}")
             print(f"   Dynamic Live Unit Cost/Token: ${cost_per_token:.10f}")
             print(f"   ------------------------------------------------")
             print(f"   Immediate Waste Stopped:  ${single_request_cost:.6f}")
@@ -119,7 +120,7 @@ async def token_shield_proxy(request: Request):
                 status_code=429,
                 content={
                     "error": {
-                        "message": f"TokenShield Intercept. Projected 1-hour runway savings: ${projected_1_hour_loss:.2f}",
+                        "message": f"TokenShield Intercept. Velocity limit reached. Projected 1-hour savings: ${projected_1_hour_loss:.2f}",
                         "type": "loop_cascade_exception",
                         "code": 429
                     }
@@ -130,8 +131,19 @@ async def token_shield_proxy(request: Request):
     target_model = body.get("model", "").lower()
     client_auth = request.headers.get("Authorization")
     
+    # Clean up the key from Bearer prefix if present
+    client_key = client_auth.replace("Bearer ", "").strip() if client_auth else ""
+    
+    # Helper to check if a key is just a local test session ID
+    is_test_session_key = (
+        not client_key 
+        or "placeholder" in client_key 
+        or client_key.startswith("session_")
+    )
+
     if "gemini" in target_model:
-        api_key = client_auth.replace("Bearer ", "") if (client_auth and "placeholder" not in client_auth) else HOST_GEMINI_KEY
+        # Swap in host environment key if using a local test session identification string
+        api_key = HOST_GEMINI_KEY if is_test_session_key else client_key
         if not api_key:
             raise HTTPException(status_code=500, detail="Gemini API authentication missing.")
         
@@ -139,9 +151,10 @@ async def token_shield_proxy(request: Request):
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
         
     elif "gpt" in target_model or "openai" in target_model:
-        api_key = client_auth if (client_auth and "placeholder" not in client_auth) else f"Bearer {HOST_OPENAI_KEY}"
+        # Swap in host environment key if using a local test session identification string
+        api_key = f"Bearer {HOST_OPENAI_KEY}" if is_test_session_key else f"Bearer {client_key}"
         if "Bearer None" in api_key or not HOST_OPENAI_KEY:
-            if not client_auth:
+            if is_test_session_key:
                 raise HTTPException(status_code=500, detail="OpenAI API authentication missing.")
         
         target_url = "https://api.openai.com/v1/chat/completions"

@@ -1,12 +1,16 @@
 import os
 import sys
 import time
+import uuid
 from openai import OpenAI
+
+# Generate a unique session key to isolate sliding windows across different runs
+unique_session_key = f"session_{uuid.uuid4().hex}"
 
 # 1. Route the application through the local TokenShield Proxy Gateway
 client = OpenAI(
     base_url="http://127.0.0.1:8000/v1",
-    api_key="placeholder-key"
+    api_key=unique_session_key
 )
 
 def run_research_pipeline(user_prompt):
