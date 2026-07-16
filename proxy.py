@@ -45,11 +45,12 @@ app = FastAPI(title="TokenShield Enterprise Gateway", lifespan=lifespan)
 
 HOST_GEMINI_KEY = os.getenv("GEMINI_API_KEY")
 HOST_OPENAI_KEY = os.getenv("OPENAI_API_KEY")
+HOST_ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY")
 
-# --- ⚡ SLIDING-WINDOW VELOCITY TRACKER CONFIGURATION ---
+# --- ⚡ SLIDING WINDOW VELOCITY TRACKER CONFIGURATION ---
 session_timestamps = defaultdict(list)
 MAX_REQUESTS_PER_WINDOW = 4
-WINDOW_SIZE_SECONDS = 60  # 1-minute sliding window
+WINDOW_SIZE_SECONDS = 60  # 1 minute sliding window
 state_lock = asyncio.Lock()
 
 def get_session_id(request: Request) -> str:
@@ -72,9 +73,9 @@ async def token_shield_proxy(request: Request):
     session_id = get_session_id(request)
     current_time = time.time()
     
-    # 2. ATOMIC VELOCITY CIRCUIT BREAKER
+    # 2. ATOMIC VELOCITY CIRCUIT BREAKER & STRUCTURAL FALLBACK
     async with state_lock:
-        # Clear out historical timestamps older than our 60-second window limit
+        # Clear out historical timestamps older than our 60 second window limit
         session_timestamps[session_id] = [
             t for t in session_timestamps[session_id] 
             if current_time - t < WINDOW_SIZE_SECONDS
@@ -86,16 +87,28 @@ async def token_shield_proxy(request: Request):
 
         # If request rate exceeds our velocity limit within the last minute, trip the breaker
         if current_velocity >= MAX_REQUESTS_PER_WINDOW:
-            model_name = body.get("model", "gemini-3.1-flash-lite").lower()
+            model_name = body.get("model", "gpt-4o-mini").lower()
             
+            # Robust content extraction to handle both string and list structures safely
             messages = body.get("messages", [])
-            raw_text = "".join([msg.get("content", "") for msg in messages])
+            extracted_parts = []
+            for msg in messages:
+                content = msg.get("content", "")
+                if isinstance(content, str):
+                    extracted_parts.append(content)
+                elif isinstance(content, list):
+                    for item in content:
+                        if isinstance(item, dict) and "text" in item:
+                            extracted_parts.append(item["text"])
+                        elif isinstance(item, str):
+                            extracted_parts.append(item)
+            raw_text = " ".join(extracted_parts)
             estimated_tokens = len(raw_text) / 4
             
-            cost_per_token = LIVE_MODEL_PRICING.get(model_name, 0.25 / 1_000_000)
+            cost_per_token = LIVE_MODEL_PRICING.get(model_name, 0.25 / 1000000)
             single_request_cost = estimated_tokens * cost_per_token
             
-            # Assumes an unthrottled loop would execute at roughly 300 requests/minute
+            # Assumes an unthrottled loop would execute at roughly 300 requests per minute
             burn_rate_per_minute = single_request_cost * 300
             projected_10_min_loss = burn_rate_per_minute * 10
             projected_1_hour_loss = burn_rate_per_minute * 60
@@ -116,16 +129,82 @@ async def token_shield_proxy(request: Request):
             print(f"   ------------------------------------------------")
             print(f"   📊 TOTAL REPO CAPITAL PROTECTED TO DATE: ${total_dollars_saved:.6f}\n")
 
-            return JSONResponse(
-                status_code=429,
-                content={
-                    "error": {
-                        "message": f"TokenShield Intercept. Velocity limit reached. Projected 1-hour savings: ${projected_1_hour_loss:.2f}",
-                        "type": "loop_cascade_exception",
-                        "code": 429
-                    }
-                }
+            warning_message = (
+                f"⚠️ [TokenShield Intercept] High request velocity detected!\n"
+                f"Runaway loop cascade prevented locally. "
+                f"Projected 1-hour savings: ${projected_1_hour_loss:.2f}.\n\n"
+                f"Please review your recent code adjustments, correct any infinite "
+                f"loops, or pause for 60 seconds before trying again."
             )
+
+            # Check if the client expects a streamed response (SSE format)
+            if body.get("stream", False):
+                async def generate_mock_stream():
+                    import json
+                    chunk_id = f"chatcmpl-shield-{int(time.time())}"
+                    
+                    # A. Send initial role assignment chunk
+                    role_payload = {
+                        "id": chunk_id,
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": model_name,
+                        "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": None}]
+                    }
+                    yield f"data: {json.dumps(role_payload)}\n\n".encode("utf-8")
+                    await asyncio.sleep(0.01)
+
+                    # B. Split and stream text segments to simulate real time generation pacing
+                    for word in warning_message.split(" "):
+                        word_payload = {
+                            "id": chunk_id,
+                            "object": "chat.completion.chunk",
+                            "created": int(time.time()),
+                            "model": model_name,
+                            "choices": [{"index": 0, "delta": {"content": word + " "}, "finish_reason": None}]
+                        }
+                        yield f"data: {json.dumps(word_payload)}\n\n".encode("utf-8")
+                        await asyncio.sleep(0.01)
+
+                    # C. Send terminal stop metadata frame
+                    stop_payload = {
+                        "id": chunk_id,
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": model_name,
+                        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]
+                    }
+                    yield f"data: {json.dumps(stop_payload)}\n\n".encode("utf-8")
+                    yield b"data: [DONE]\n\n"
+
+                return StreamingResponse(generate_mock_stream(), media_type="text/event-stream")
+
+            # Standard non-streamed JSON response block
+            else:
+                return JSONResponse(
+                    status_code=200,
+                    content={
+                        "id": f"chatcmpl-shield-{int(time.time())}",
+                        "object": "chat.completion",
+                        "created": int(time.time()),
+                        "model": model_name,
+                        "choices": [
+                            {
+                                "index": 0,
+                                "message": {
+                                    "role": "assistant",
+                                    "content": warning_message
+                                },
+                                "finish_reason": "stop"
+                            }
+                        ],
+                        "usage": {
+                            "prompt_tokens": int(estimated_tokens),
+                            "completion_tokens": 0,
+                            "total_tokens": int(estimated_tokens)
+                        }
+                    }
+                )
 
     # 3. DYNAMIC UPSTREAM ROUTING & TOKEN FORWARDING
     target_model = body.get("model", "").lower()
@@ -142,7 +221,6 @@ async def token_shield_proxy(request: Request):
     )
 
     if "gemini" in target_model:
-        # Swap in host environment key if using a local test session identification string
         api_key = HOST_GEMINI_KEY if is_test_session_key else client_key
         if not api_key:
             raise HTTPException(status_code=500, detail="Gemini API authentication missing.")
@@ -150,8 +228,15 @@ async def token_shield_proxy(request: Request):
         target_url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
         
+    elif "claude" in target_model:
+        api_key = HOST_ANTHROPIC_KEY if is_test_session_key else client_key
+        if not api_key:
+            raise HTTPException(status_code=500, detail="Anthropic API authentication missing.")
+        
+        target_url = "https://api.anthropic.com/v1/chat/completions"
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        
     elif "gpt" in target_model or "openai" in target_model:
-        # Swap in host environment key if using a local test session identification string
         api_key = f"Bearer {HOST_OPENAI_KEY}" if is_test_session_key else f"Bearer {client_key}"
         if "Bearer None" in api_key or not HOST_OPENAI_KEY:
             if is_test_session_key:
@@ -163,24 +248,43 @@ async def token_shield_proxy(request: Request):
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported model target '{body.get('model')}'")
 
-    # 4. NETWORK PAYLOAD DISPATCH PIPELINE
+    # 4. HARDENED STREAM AND NON STREAM PIPELINE
     is_streaming = body.get("stream", False)
 
     if is_streaming:
         async def stream_generator():
-            async with http_client.stream("POST", target_url, json=body, headers=headers) as response:
-                async for chunk in response.aiter_bytes():
-                    yield chunk
+            try:
+                async with http_client.stream("POST", target_url, json=body, headers=headers) as response:
+                    # Check upstream connection validation immediately
+                    if response.status_code != 200:
+                        err_body = await response.aread()
+                        print(f"🚨 Upstream connection failed! status={response.status_code}")
+                        print(f"   Body: {err_body.decode('utf-8', errors='ignore')}")
+                        return
+
+                    async for chunk in response.aiter_bytes():
+                        yield chunk
+            except Exception as e:
+                print(f"🚨 Stream generation crashed: {e}")
+                
         return StreamingResponse(stream_generator(), media_type="text/event-stream")
     
     else:
-        response = await http_client.post(target_url, json=body, headers=headers)
         try:
-            response_data = response.json()
-        except Exception:
-            response_data = {"error": "Failed to decode upstream JSON response.", "raw_body": response.text}
-                
-        return JSONResponse(status_code=response.status_code, content=response_data)
+            response = await http_client.post(target_url, json=body, headers=headers)
+            try:
+                response_data = response.json()
+            except Exception:
+                response_data = {"error": "Failed to decode upstream JSON response.", "raw_body": response.text}
+            
+            if response.status_code != 200:
+                print(f"🚨 Upstream Non-Stream Error: status={response.status_code}")
+                print(f"   Body: {response_data}")
+                    
+            return JSONResponse(status_code=response.status_code, content=response_data)
+        except Exception as e:
+            print(f"🚨 Exception caught during non-stream dispatch: {e}")
+            return JSONResponse(status_code=500, content={"error": str(e)})
 
 if __name__ == "__main__":
     import uvicorn
