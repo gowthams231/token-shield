@@ -2,20 +2,50 @@ import os
 import time
 import httpx
 import asyncio
+import hashlib
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 from collections import defaultdict
+from dotenv import load_dotenv
 
-# 1. LIVE MARKET PRICE CACHE STORAGE
+# Load all configurations from the local .env file
+load_dotenv()
+
+# --- ⚙️ DYNAMIC CONFIGURATION LOADER ---
+HOST_GEMINI_KEY = os.getenv("GEMINI_API_KEY")
+HOST_OPENAI_KEY = os.getenv("OPENAI_API_KEY")
+HOST_ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY")
+
+try:
+    WINDOW_SIZE_SECONDS = int(os.getenv("WINDOW_SIZE_SECONDS", 60))
+    MAX_DUPLICATE_REPEATS = int(os.getenv("MAX_DUPLICATE_REPEATS", 3))
+    MAX_TOTAL_REQUESTS = int(os.getenv("MAX_TOTAL_REQUESTS", 15))
+except ValueError:
+    print("⚠️ Invalid integer found in .env settings. Falling back to baseline defaults.")
+    WINDOW_SIZE_SECONDS = 60
+    MAX_DUPLICATE_REPEATS = 3
+    MAX_TOTAL_REQUESTS = 15
+
+# Global pricing tracker
 LIVE_MODEL_PRICING = {}
 total_dollars_saved = 0.0
-
 http_client: httpx.AsyncClient = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global http_client, LIVE_MODEL_PRICING
+    
+    # 📝 Verify critical environment configuration during initialization
+    print("🚀 Initializing TokenShield Gateway Settings...")
+    print(f"   • Sliding Window Size: {WINDOW_SIZE_SECONDS} seconds")
+    print(f"   • Max Duplicate Repeats allowed: {MAX_DUPLICATE_REPEATS}")
+    print(f"   • Absolute Speed Limit: {MAX_TOTAL_REQUESTS} requests per window")
+    
+    # Simple alert if no host keys are active
+    if not any([HOST_GEMINI_KEY, HOST_OPENAI_KEY, HOST_ANTHROPIC_KEY]):
+        print("⚠️ Warning: No local API keys found in your .env file! Ensure clients pass their own.")
+
     http_client = httpx.AsyncClient(
         timeout=60.0,
         limits=httpx.Limits(max_connections=200, max_keepalive_connections=50)
@@ -29,12 +59,11 @@ async def lifespan(app: FastAPI):
             for model in data:
                 model_id = model.get("id", "").split("/")[-1].lower()
                 prompt_cost = float(model.get("pricing", {}).get("prompt", 0.0))
-                
                 if model_id:
                     LIVE_MODEL_PRICING[model_id] = prompt_cost
-            print(f"✅ Successfully cached {len(LIVE_MODEL_PRICING)} live model prices dynamically.")
+            print(f"✅ Cached {len(LIVE_MODEL_PRICING)} live model prices dynamically.")
         else:
-            print("⚠️ Live pricing fetch failed. Falling back to default estimation curves.")
+            print("⚠️ Live pricing fetch failed. Using fallback estimation curves.")
     except Exception as e:
         print(f"🚨 Network error fetching live pricing: {e}. Using baseline profiles.")
 
@@ -43,14 +72,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="TokenShield Enterprise Gateway", lifespan=lifespan)
 
-HOST_GEMINI_KEY = os.getenv("GEMINI_API_KEY")
-HOST_OPENAI_KEY = os.getenv("OPENAI_API_KEY")
-HOST_ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY")
-
-# --- ⚡ SLIDING WINDOW VELOCITY TRACKER CONFIGURATION ---
-session_timestamps = defaultdict(list)
-MAX_REQUESTS_PER_WINDOW = 4
-WINDOW_SIZE_SECONDS = 60  # 1 minute sliding window
+# Stores history as lists of tuples: (timestamp, content_hash)
+session_history = defaultdict(list)
 state_lock = asyncio.Lock()
 
 def get_session_id(request: Request) -> str:
@@ -61,7 +84,7 @@ def get_session_id(request: Request) -> str:
 
 @app.post("/v1/chat/completions")
 async def token_shield_proxy(request: Request):
-    global total_dollars_saved, session_timestamps
+    global total_dollars_saved, session_history
     try:
         body = await request.json()
     except Exception:
@@ -73,42 +96,50 @@ async def token_shield_proxy(request: Request):
     session_id = get_session_id(request)
     current_time = time.time()
     
-    # 2. ATOMIC VELOCITY CIRCUIT BREAKER & STRUCTURAL FALLBACK
+    # Extract message blocks to construct content signature
+    messages = body.get("messages", [])
+    extracted_parts = []
+    for msg in messages:
+        content = msg.get("content", "")
+        if isinstance(content, str):
+            extracted_parts.append(content)
+        elif isinstance(content, list):
+            for item in content:
+                if isinstance(item, dict) and "text" in item:
+                    extracted_parts.append(item["text"])
+                elif isinstance(item, str):
+                    extracted_parts.append(item)
+    raw_text = " ".join(extracted_parts)
+    
+    # Create md5 hash representation of the content
+    payload_hash = hashlib.md5(raw_text.encode("utf-8")).hexdigest()
+    estimated_tokens = len(raw_text) / 4
+    
     async with state_lock:
-        # Clear out historical timestamps older than our 60 second window limit
-        session_timestamps[session_id] = [
-            t for t in session_timestamps[session_id] 
-            if current_time - t < WINDOW_SIZE_SECONDS
+        # Clear entries older than current sliding window
+        session_history[session_id] = [
+            item for item in session_history[session_id] 
+            if current_time - item[0] < WINDOW_SIZE_SECONDS
         ]
         
-        # Log the current request timestamp
-        session_timestamps[session_id].append(current_time)
-        current_velocity = len(session_timestamps[session_id])
-
-        # If request rate exceeds our velocity limit within the last minute, trip the breaker
-        if current_velocity >= MAX_REQUESTS_PER_WINDOW:
+        # Log this specific execution event
+        session_history[session_id].append((current_time, payload_hash))
+        
+        # Evaluate window diagnostics
+        total_requests = len(session_history[session_id])
+        duplicate_count = sum(1 for item in session_history[session_id] if item[1] == payload_hash)
+        
+        is_loop = duplicate_count >= MAX_DUPLICATE_REPEATS
+        is_flood = total_requests > MAX_TOTAL_REQUESTS
+        
+        if is_loop or is_flood:
+            status_reason = "LOOPING BEHAVIOR" if is_loop else "CONTEXT FLOODING"
             model_name = body.get("model", "gpt-4o-mini").lower()
-            
-            # Robust content extraction to handle both string and list structures safely
-            messages = body.get("messages", [])
-            extracted_parts = []
-            for msg in messages:
-                content = msg.get("content", "")
-                if isinstance(content, str):
-                    extracted_parts.append(content)
-                elif isinstance(content, list):
-                    for item in content:
-                        if isinstance(item, dict) and "text" in item:
-                            extracted_parts.append(item["text"])
-                        elif isinstance(item, str):
-                            extracted_parts.append(item)
-            raw_text = " ".join(extracted_parts)
-            estimated_tokens = len(raw_text) / 4
             
             cost_per_token = LIVE_MODEL_PRICING.get(model_name, 0.25 / 1000000)
             single_request_cost = estimated_tokens * cost_per_token
             
-            # Assumes an unthrottled loop would execute at roughly 300 requests per minute
+            # Predict uncontrolled loop damage at 300 queries per minute
             burn_rate_per_minute = single_request_cost * 300
             projected_10_min_loss = burn_rate_per_minute * 10
             projected_1_hour_loss = burn_rate_per_minute * 60
@@ -116,9 +147,10 @@ async def token_shield_proxy(request: Request):
             total_dollars_saved += single_request_cost
             
             print(f"\n🛡️ [TokenShield Threat Intercept Report]")
-            print(f"   Status: VELOCITY ANOMALY DETECTED (Looping Behavior)")
+            print(f"   Status: VELOCITY ANOMALY DETECTED ({status_reason})")
             print(f"   Model Target: {model_name}")
-            print(f"   Requests in Last 60s: {current_velocity} / {MAX_REQUESTS_PER_WINDOW}")
+            print(f"   Requests in Sliding Window: {total_requests} / {MAX_TOTAL_REQUESTS}")
+            print(f"   Identical Request Repetitions: {duplicate_count} / {MAX_DUPLICATE_REPEATS}")
             print(f"   Dynamic Live Unit Cost/Token: ${cost_per_token:.10f}")
             print(f"   ------------------------------------------------")
             print(f"   Immediate Waste Stopped:  ${single_request_cost:.6f}")
@@ -132,18 +164,16 @@ async def token_shield_proxy(request: Request):
             warning_message = (
                 f"⚠️ [TokenShield Intercept] High request velocity detected!\n"
                 f"Runaway loop cascade prevented locally. "
-                f"Projected 1-hour savings: ${projected_1_hour_loss:.2f}.\n\n"
+                f"Projected 1 hour savings: ${projected_1_hour_loss:.2f}.\n\n"
                 f"Please review your recent code adjustments, correct any infinite "
                 f"loops, or pause for 60 seconds before trying again."
             )
 
-            # Check if the client expects a streamed response (SSE format)
             if body.get("stream", False):
                 async def generate_mock_stream():
                     import json
                     chunk_id = f"chatcmpl-shield-{int(time.time())}"
                     
-                    # A. Send initial role assignment chunk
                     role_payload = {
                         "id": chunk_id,
                         "object": "chat.completion.chunk",
@@ -154,7 +184,6 @@ async def token_shield_proxy(request: Request):
                     yield f"data: {json.dumps(role_payload)}\n\n".encode("utf-8")
                     await asyncio.sleep(0.01)
 
-                    # B. Split and stream text segments to simulate real time generation pacing
                     for word in warning_message.split(" "):
                         word_payload = {
                             "id": chunk_id,
@@ -166,7 +195,6 @@ async def token_shield_proxy(request: Request):
                         yield f"data: {json.dumps(word_payload)}\n\n".encode("utf-8")
                         await asyncio.sleep(0.01)
 
-                    # C. Send terminal stop metadata frame
                     stop_payload = {
                         "id": chunk_id,
                         "object": "chat.completion.chunk",
@@ -179,7 +207,6 @@ async def token_shield_proxy(request: Request):
 
                 return StreamingResponse(generate_mock_stream(), media_type="text/event-stream")
 
-            # Standard non-streamed JSON response block
             else:
                 return JSONResponse(
                     status_code=200,
@@ -206,66 +233,62 @@ async def token_shield_proxy(request: Request):
                     }
                 )
 
-    # 3. DYNAMIC UPSTREAM ROUTING & TOKEN FORWARDING
+    # --- 🔀 DYNAMIC PROVIDER ROUTING ---
     target_model = body.get("model", "").lower()
     client_auth = request.headers.get("Authorization")
-    
-    # Clean up the key from Bearer prefix if present
     client_key = client_auth.replace("Bearer ", "").strip() if client_auth else ""
     
-    # Helper to check if a key is just a local test session ID
     is_test_session_key = (
         not client_key 
         or "placeholder" in client_key 
         or client_key.startswith("session_")
     )
 
+    # Route A: Google Gemini
     if "gemini" in target_model:
         api_key = HOST_GEMINI_KEY if is_test_session_key else client_key
         if not api_key:
-            raise HTTPException(status_code=500, detail="Gemini API authentication missing.")
-        
+            raise HTTPException(status_code=500, detail="Gemini API credentials not found in environment.")
         target_url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
         
+    # Route B: Anthropic Claude
     elif "claude" in target_model:
         api_key = HOST_ANTHROPIC_KEY if is_test_session_key else client_key
         if not api_key:
-            raise HTTPException(status_code=500, detail="Anthropic API authentication missing.")
-        
+            raise HTTPException(status_code=500, detail="Anthropic API credentials not found in environment.")
         target_url = "https://api.anthropic.com/v1/chat/completions"
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
         
+    # Route C: OpenAI GPT
     elif "gpt" in target_model or "openai" in target_model:
         api_key = f"Bearer {HOST_OPENAI_KEY}" if is_test_session_key else f"Bearer {client_key}"
         if "Bearer None" in api_key or not HOST_OPENAI_KEY:
             if is_test_session_key:
-                raise HTTPException(status_code=500, detail="OpenAI API authentication missing.")
-        
+                raise HTTPException(status_code=500, detail="OpenAI API credentials not found in environment.")
         target_url = "https://api.openai.com/v1/chat/completions"
         headers = {"Authorization": api_key, "Content-Type": "application/json"}
         
     else:
-        raise HTTPException(status_code=400, detail=f"Unsupported model target '{body.get('model')}'")
+        raise HTTPException(status_code=400, detail=f"Unsupported model target request: '{body.get('model')}'")
 
-    # 4. HARDENED STREAM AND NON STREAM PIPELINE
+    # --- 🛰️ UPSTREAM DISPATCH TRANSMISSION ---
     is_streaming = body.get("stream", False)
 
     if is_streaming:
         async def stream_generator():
             try:
                 async with http_client.stream("POST", target_url, json=body, headers=headers) as response:
-                    # Check upstream connection validation immediately
                     if response.status_code != 200:
                         err_body = await response.aread()
-                        print(f"🚨 Upstream connection failed! status={response.status_code}")
-                        print(f"   Body: {err_body.decode('utf-8', errors='ignore')}")
+                        print(f"🚨 Upstream system error. Connection failed with code {response.status_code}")
+                        print(f"   Raw Message: {err_body.decode('utf-8', errors='ignore')}")
                         return
 
                     async for chunk in response.aiter_bytes():
                         yield chunk
             except Exception as e:
-                print(f"🚨 Stream generation crashed: {e}")
+                print(f"🚨 Stream context generation crashed: {e}")
                 
         return StreamingResponse(stream_generator(), media_type="text/event-stream")
     
@@ -275,15 +298,15 @@ async def token_shield_proxy(request: Request):
             try:
                 response_data = response.json()
             except Exception:
-                response_data = {"error": "Failed to decode upstream JSON response.", "raw_body": response.text}
+                response_data = {"error": "Failed to parse upstream response payload.", "raw_body": response.text}
             
             if response.status_code != 200:
-                print(f"🚨 Upstream Non-Stream Error: status={response.status_code}")
+                print(f"🚨 Upstream Non-Stream Transmission Failure: code={response.status_code}")
                 print(f"   Body: {response_data}")
                     
             return JSONResponse(status_code=response.status_code, content=response_data)
         except Exception as e:
-            print(f"🚨 Exception caught during non-stream dispatch: {e}")
+            print(f"🚨 Unexpected exception caught: {e}")
             return JSONResponse(status_code=500, content={"error": str(e)})
 
 if __name__ == "__main__":

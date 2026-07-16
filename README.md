@@ -1,73 +1,85 @@
-🛡️ TokenShield Enterprise Gateway An automated, local network circuit breaker designed to protect AI developers and startups from catastrophic, runaway background agent loops that rapidly burn through **API** runway capital.
+# 🛡️ TokenShield Enterprise Gateway
 
-📊 The Problem Autonomous multi-agent architectures and recursive data pipelines are inherently prone to cascade loops.
+TokenShield is an intelligent, local-network circuit breaker designed to protect AI developers and startups from catastrophic, runaway background agent loops that rapidly burn through API credits.
 
-When an unhandled exception, logical contradiction, or dynamic network failure occurs (e.g., an Editor agent repeatedly rejecting an automated Writer agent's draft, or a database query returning blank schemas), background scripts can hammer upstream AI endpoints thousands of times a minute.
+## 📊 The Problem
+Autonomous multi-agent architectures and recursive data pipelines are inherently prone to cascade loops. A minor code bug can result in thousands of dollars in accidental API charges before engineers notice.
 
-Because these operations happen silently in the background, a minor code bug can result in thousands of dollars in accidental **API** charges before engineers notice.
+## ✨ The Solution
+TokenShield acts as a security sentinel sitting between your application code and upstream AI providers (Google Gemini, OpenAI, Anthropic).
 
-✨ The Solution TokenShield acts as an intelligent, time-aware security sentinel sitting between your application code and upstream AI providers (Google Gemini / OpenAI).
+### Key Features
+- **Multi-Tenant Session Isolation**: Tracks connection counters per unique API key or UUID session.
+- **Cryptographic Content Hash Detection**: The proxy hashes incoming prompt payloads to distinguish between aggressive, legitimate file reading and true, identical loop states, ensuring only actual runaway loops are blocked.
+- **Dynamic Market Pricing Caching**: Automatically fetches live token costs to calculate your "financial blast radius."
+- **Financial Threat Intercept Ledger**: Prints projected savings directly to your console when a loop is blocked.
 
-Multi-Tenant Session Isolation: Tracks connection counters per unique **API** key or **UUID** session concurrently.
+---
 
-Sliding-Window Velocity Tracking: Measures request density over a moving 60-second window. It allows normal, distributed workflows to pass through indefinitely but trips instantly when a rapid-fire code loop is detected.
+## 🚀 Quick Start
 
-Dynamic Market Pricing Caching: Queries public pricing registries dynamically on server boot, automatically adjusting its internal financial ledger to map against live token rates.
+### 1. Prerequisites
+- Python 3.9+
+- `pip`
 
-Financial Threat Intercept Ledger: Instantly calculates the token size of blocked payloads to print the projected 10-minute and 1-hour runway blast-radius savings directly to your server console.
-
-🚀 Quick Start & Installation ## Clone & Install Dependencies Ensure you have Python 3.9+ installed. Initialize your workspace and install the required library dependencies:
-
+### 2. Installation
+Clone the repository and install dependencies:
+```bash
 pip install -r requirements.txt
+```
 
-## Configure Environment Secrets
+### 3. Configuration
+Copy the `.env.example` (or create a new `.env` file) and populate your API keys:
 
-TokenShield checks your local runtime variables to securely swap out testing session keys for actual production tokens. Export your keys:
+```bash
+# 🔑 Upstream AI Provider API Keys
+GEMINI_API_KEY="your_gemini_api_key_here"
+OPENAI_API_KEY="your_openai_api_key_here"
+ANTHROPIC_API_KEY="your_anthropic_api_key_here"
 
-For Windows (PowerShell): $env:GEMINI_API_KEY=*your_actual_gemini_api_key* $env:OPENAI_API_KEY=*your_actual_openai_key*
+# 🛡️ TokenShield Circuit Breaker Controls
+WINDOW_SIZE_SECONDS=60
+MAX_DUPLICATE_REPEATS=3
+MAX_TOTAL_REQUESTS=15
+```
 
-For Linux / macOS: export GEMINI_API_KEY=*your_actual_gemini_api_key* export OPENAI_API_KEY=*your_actual_openai_key*
+*Note: If you already have API keys set up as global environment variables on your operating system, you do not need to paste them into the `.env` file. The proxy will automatically detect and prioritize your existing system keys, allowing you to keep the `.env` file strictly for circuit breaker threshold configuration.*
 
-## Initialize the Gateway Server
-
-Launch the proxy security station. On boot, it will query global aggregators to cache live market token costs:
-
+### 4. Running the Gateway
+Launch the proxy server:
+```bash
 python proxy.py
+```
 
-## Run the Live Multi-Agent App Test
+### 🛠️ Connecting to your IDE (Cline / Cursor / etc.)
+You can route your IDE's AI requests through TokenShield to protect your API credits:
+1. **Provider**: Choose "OpenAI Compatible".
+2. **Base URL**: Enter `http://127.0.0.1:8000/v1`.
+3. **API Key**: Enter any placeholder (e.g., `placeholder`) if using keys from your system environment, or pass a direct key.
+4. **Model ID**: Choose your target model (e.g., `gemini-3.1-flash-lite`, `claude-3-5-sonnet`, or `gpt-4o`).
 
-Open a secondary terminal tab and execute the research application workspace script:
-
+### 5. Running the Demo
+In a separate terminal, run the multi-agent sandbox:
+```bash
 python app.py
+```
 
-🧪 Organic Reality Check Demo To view TokenShield operating under zero-leakage conditions, run app.py and test two scenarios when prompted for a research topic:
+---
 
-Scenario A: Clean Consensus Pathway Input Prompt: The history of the printing press
+## 🧪 Testing the Circuit Breaker
+Run `app.py` and try the **Banana Paradox** scenario:
+*Input Prompt:* "Write a review layout, but the text must contain the word 'banana' while completely excluding the letter 'a'."
 
-Behavior: The Writer drafts cleanly, the Editor approves the logic on turn one, and the script exits successfully with a **200** OK network footprint. Since only 2 total requests are made, it stays safely under the velocity threshold, and TokenShield remains transparent.
+This forces a logical contradiction, triggering a rapid-fire loop. TokenShield will detect the velocity anomaly, sever the connection, and report your financial savings.
 
-Scenario B: The Recursive Loop Trigger (The Banana Paradox) Input Prompt: Write a review layout, but the text must contain the word 'banana' while completely excluding the letter 'a'
+---
 
-Behavior: This prompt forces a fundamental logical mathematical contradiction. The Writer must write *banana* (which contains three 'a's), but the Editor must reject any text containing the letter 'a'. The agents enter a rapid-fire loop trying to solve the unsolvable.
+## 📦 Project Architecture
+- **`proxy.py`**: Core FastAPI gateway engine. Handles asynchronous HTTP connection pooling, thread-safe rate limiting, and dynamic pricing lookups.
+- **`app.py`**: Multi-agent workspace sandbox. Demonstrates Writer/Editor agent interaction with automated self-correction.
+- **`.env`**: Centralized configuration for API keys and security thresholds.
 
-Result: On the 4th consecutive contact round within the 60-second window, TokenShield drops the hammer. The communication line is severed locally, returning a **429** error and saving your external keys from reaching the public internet.
+---
 
-📋 Expected Server Output Ledger When Scenario B trips, your proxy.py terminal tab will instantly drop a structured business metrics report proving your exact financial mitigation figures:
-
-🛡️ [TokenShield Threat Intercept Report]
-Status: **VELOCITY** **ANOMALY** **DETECTED** (Looping Behavior)
-Model Target: gemini-3.1-flash-lite
-Requests in Last 60s: 4 / 4
-Dynamic Live Unit Cost/Token: $0.**0000002500**
-Immediate Waste Stopped:  $0.**000350**
-🚨 **RUNAWAY** **BURN** **RATE** **PROJECTION** IF **LEFT** **UNCHECKED**:
-- Burn Rate / Min:     $0.**1049**
-- Lost in 10 Minutes:  $1.05
-- Lost in 1 Hour:      $6.30
-📊 **TOTAL** **REPO** **CAPITAL** **PROTECTED** TO **DATE**: $0.**001049**
-
-📦 Project Architecture proxy.py: Core Gateway engine built on FastAPI using asynchronous **HTTP** connection pooling, a thread-safe sliding-window rate limiter, and a dynamic model pricing lookup.
-
-app.py: Multi-agent workspace sandbox running Writer and Editor agents with automated self-correction logic. Uses **UUID** generation to isolate sliding-window sessions across separate script executions.
-
-requirements.txt: Production-pinned dependencies mapping network routing assets.
+## 🛡️ License
+MIT
