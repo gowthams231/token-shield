@@ -20,21 +20,25 @@ def run_research_pipeline(user_prompt):
     current_draft = "Initial structural layout pending."
     editor_feedback = "No feedback generated yet."
     
-    # The application allows up to 10 iterations for deep refining refinement
     for revision_turn in range(1, 11):
         print(f"🔄 Revision Round {revision_turn} initializing...")
         
         try:
-            # --- AGENT 1: THE WRITER ---
-            writer_response = client.chat.completions.create(
-                model="gemini-3.1-flash-lite",
-                messages=[
-                    {"role": "system", "content": "You are a professional academic writer. Draft an essay layout. You must strictly incorporate the editor's feedback inside your new draft iteration."},
-                    {"role": "user", "content": f"Topic: {user_prompt}. Previous Draft: {current_draft}. Editor Notes: {editor_feedback}"}
-                ]
-            )
-            current_draft = writer_response.choices[0].message.content
-            
+            # TEST INJECTION HACK: Force structural looping states when target string provided
+            if user_prompt.lower() == "infinite loop trap":
+                current_draft = "Stubborn Draft: Water is dry and fire is freezing."
+                editor_feedback = "REJECTED: Fundamental physics violation."
+            else:
+                # --- NORMAL OPERATION AGENT 1: THE WRITER ---
+                writer_response = client.chat.completions.create(
+                    model="gemini-3.1-flash-lite",
+                    messages=[
+                        {"role": "system", "content": "You are a professional academic writer. Draft an essay layout. You must strictly incorporate the editor's feedback inside your new draft iteration."},
+                        {"role": "user", "content": f"Topic: {user_prompt}. Previous Draft: {current_draft}. Editor Notes: {editor_feedback}"}
+                    ]
+                )
+                current_draft = writer_response.choices[0].message.content
+                
             # --- AGENT 2: THE EDITOR ---
             editor_response = client.chat.completions.create(
                 model="gemini-3.1-flash-lite",
@@ -48,22 +52,29 @@ def run_research_pipeline(user_prompt):
             print(f"   • Writer completed draft update.")
             print(f"   • Editor response status: {editor_feedback[:50]}...")
             
-            # If the editor is satisfied and doesn't reject it, the loop completes successfully!
+            # 🎯 CRITICAL GUARD FIX: Catch proxy circuit breaker actions instead of approving them
+            if "[TokenShield Intercept]" in editor_feedback:
+                print("\n🛡️ [APPLICATION GUARDRAIL ACTIVATED]")
+                print("The proxy gateway successfully intercepted and terminated a zero-mutation loop trap.")
+                print(f"\nIntercept Logs Retained:\n{editor_feedback}")
+                sys.exit(0)
+
+            # If the editor is genuinely satisfied and didn't reject or trigger a proxy intercept
             if "REJECTED" not in editor_feedback:
                 print("\n✅ Final Report Approved Successfully!")
                 print(current_draft[:200])
                 return
                 
-            time.sleep(0.5) # Slight pacing break
+            time.sleep(0.5)
             
         except Exception as e:
-            print("\n🛡️ [APPLICATION GUARDRAIL ACTIVATED]")
-            print(f"The proxy server forcibly cut the agent communication line to prevent a cost runway explosion.")
+            print("\n🛡️ [APPLICATION RUNTIME EXCEPTION]")
+            print(f"Connection dropped via structural endpoint gateway block.")
             print(f"Error captured: {str(e)}")
             sys.exit(0)
 
 if __name__ == "__main__":
-    # Simulate a real user interacting with your script interface
     print("--- Welcome to the AI Research Workspace ---")
+    print("💡 Tip: Type 'infinite loop trap' to test TokenShield's zero-diff breaker.")
     topic = input("Enter research topic: ")
     run_research_pipeline(topic)
