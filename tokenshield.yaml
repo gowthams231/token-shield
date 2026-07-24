@@ -1,0 +1,57 @@
+version: "1.0"
+
+gateway:
+  host: "127.0.0.1"
+  port: 8000
+  upstream_base_url: "${UPSTREAM_BASE_URL:https://api.openai.com/v1}"
+  timeout_seconds: 60.0
+
+circuit_breaker:
+  window_size_seconds: 60
+  strict_duplicate_limit: 2      # Tier 1 Soft Steering threshold
+  consecutive_stagnant_limit: 5  # Tier 2 Hard Stop (429) threshold
+
+# Purely dynamic classification categories driven by YAML
+classification:
+  default_category: "GENERIC_STAGNATION"
+  categories:
+    EMPTY_RESULT:
+      - "0 results"
+      - "partial match"
+      - "not found"
+      - "empty"
+      - "no match"
+      - "0 file(s)"
+      - "no such file"
+      - "directory listing empty"
+      - "itemnotfound"
+    AUTH_OR_PERMISSION_DENIED:
+      - "401"
+      - "403"
+      - "unauthorized"
+      - "forbidden"
+      - "permission denied"
+      - "access denied"
+    INVALID_SCHEMA_OR_SYNTAX:
+      - "invalid"
+      - "schema"
+      - "validation"
+      - "bad request"
+      - "syntaxerror"
+      - "command failed"
+    TRANSIENT_NETWORK_FAILURE:
+      - "timeout"
+      - "500"
+      - "502"
+      - "503"
+      - "504"
+
+steering:
+  prompt_template: |
+    🚨 CRITICAL CIRCUIT BREAKER NOTICE: You have invoked {tool_label} repeatedly resulting in the state '{error_family}'. Do NOT repeat near-identical tool calls.
+
+    Before executing any tool, you MUST output a text response answering these two questions:
+    1. FAILURE ANALYSIS: Why did your previous tool call fail or stagnate?
+    2. REVISED STRATEGY: What specific parameter modifications or alternative tools will you use instead?
+
+    If your next step repeats the same stagnant tool pattern, your connection will be hard-terminated.
